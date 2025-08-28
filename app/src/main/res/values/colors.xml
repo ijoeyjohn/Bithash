@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary colors -->
+    <color name="colorPrimary">#6200EE</color>
+    <color name="colorPrimaryDark">#3700B3</color>
+
+    <!-- Accent color -->
+    <color name="colorAccent">#03DAC5</color>
+
+    <!-- Background colors -->
+    <color name="colorBackground">#FAFAFA</color>
+
+    <!-- Text colors -->
+    <color name="textPrimary">#DE000000</color>
+    <color name="textSecondary">#8A000000</color>
+
+    <!-- Error color -->
+    <color name="colorError">#B00020</color>
+</resources>
