@@ -5,6 +5,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -13,9 +14,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewTreeObserver;
-import android.view.WindowManager;
-import android.webkit.*;
+import android.webkit.CookieManager;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -25,13 +31,8 @@ import android.widget.TextView;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
-import androidx.core.view.WindowInsetsControllerCompat;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
@@ -42,7 +43,6 @@ public class MainActivity extends AppCompatActivity {
     private TextView errorDetails;
     private Button retryBtn;
 
-
     private static final String URL = "https://bithash.apps.adpumb.com/";
     private boolean isErrorShown = false;
 
@@ -51,8 +51,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        webView.addJavascriptInterface(new WebAppInterface(), "Android");
-
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
@@ -63,7 +61,8 @@ public class MainActivity extends AppCompatActivity {
         errorText = findViewById(R.id.errorText);
         errorDetails = findViewById(R.id.errorDetails);
         retryBtn = findViewById(R.id.retryBtn);
-        WebView.setWebContentsDebuggingEnabled(true);
+
+
 
         // WebView settings
         WebSettings ws = webView.getSettings();
@@ -74,34 +73,38 @@ public class MainActivity extends AppCompatActivity {
         ws.setUseWideViewPort(true);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
-        ws.setDatabaseEnabled(true);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+        ws.setDatabaseEnabled(true);
+
+        // Critical settings for OAuth to work properly
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+            CookieManager.getInstance().setAcceptCookie(true);
+        }
+
+        // Enable these for better storage handling
+        ws.setAllowUniversalAccessFromFileURLs(true);
+        ws.setAllowFileAccessFromFileURLs(true);
+
+        // Set a proper user agent (some sites check this)
+        String defaultUserAgent = ws.getUserAgentString();
+        ws.setUserAgentString(defaultUserAgent + " MyAppWebView/1.0");
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ws.setSafeBrowsingEnabled(true);
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
-            CookieManager.getInstance().setAcceptCookie(true);
-        }
-
-        ws.setAllowUniversalAccessFromFileURLs(true);
-        ws.setAllowFileAccessFromFileURLs(true);
-
-// Set a custom user agent to help with OAuth flows
-        String defaultUserAgent = ws.getUserAgentString();
-        ws.setUserAgentString(defaultUserAgent + " MyAppWebView/1.0");
-
         webView.setWebViewClient(new AppWebViewClient());
         webView.setWebChromeClient(new AppWebChromeClient());
+
+        // Add JavaScript interface for auth communication
+        webView.addJavascriptInterface(new WebAppInterface(), "Android");
 
         retryBtn.setOnClickListener(v -> {
             hideError();
             checkNetworkAndLoad();
         });
-        //SystemBarHelper.setupSystemBars(this, android.R.id.content);
+
         setupSystemBars();
         handleIntent(getIntent());
 
@@ -110,7 +113,6 @@ public class MainActivity extends AppCompatActivity {
 
         // Initial load
         checkNetworkAndLoad();
-
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -124,25 +126,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-    public class WebAppInterface {
-        @JavascriptInterface
-        public void handleAuthError(String error) {
-            Log.d("WebViewAuth", "Authentication error: " + error);
-            // Handle authentication errors from the web page
-            runOnUiThread(() -> {
-                if (error.contains("missing initial state") || error.contains("sessionStorage")) {
-                    showError("Authentication Error",
-                            "Please try signing in again. If the problem persists, clear your app data and try again.");
-                }
-            });
-        }
 
-        @JavascriptInterface
-        public void authSuccess(String userInfo) {
-            Log.d("WebViewAuth", "Authentication successful: " + userInfo);
-            // Handle successful authentication
-        }
-    }
     private void setupSystemBars() {
         // Just set light status bar appearance
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -163,7 +147,6 @@ public class MainActivity extends AppCompatActivity {
             showError(getString(R.string.error_no_internet), getString(R.string.error_no_internet_message));
         }
     }
-
 
     private boolean isNetworkAvailable() {
         ConnectivityManager connectivityManager =
@@ -205,6 +188,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -222,19 +206,41 @@ public class MainActivity extends AppCompatActivity {
             webView.loadUrl(url);
         }
     }
-    private boolean isFirebaseAuthUrl(String url) {
-        return url.contains("accounts.google.com") ||
-                url.contains("google.com/oauth") ||
-                url.contains("securetoken.googleapis.com") ||
-                url.contains("firebaseapp.com") ||
-                url.contains("__/auth/handler");
+
+    // JavaScript Interface for communication with web content
+    public class WebAppInterface {
+        @android.webkit.JavascriptInterface
+        public void handleAuthError(String error) {
+            Log.d("WebViewAuth", "Authentication error: " + error);
+            // Handle authentication errors from the web page
+            runOnUiThread(() -> {
+                if (error.contains("missing initial state") || error.contains("sessionStorage")) {
+                    showError("Authentication Error",
+                            "Please try signing in again. If the problem persists, clear your app data and try again.");
+                }
+            });
+        }
+
+        @android.webkit.JavascriptInterface
+        public void authSuccess(String userInfo) {
+            Log.d("WebViewAuth", "Authentication successful: " + userInfo);
+            // Handle successful authentication
+        }
     }
 
     private class AppWebViewClient extends WebViewClient {
+        private boolean isFirebaseAuthUrl(String url) {
+            return url.contains("accounts.google.com") ||
+                    url.contains("google.com/oauth") ||
+                    url.contains("securetoken.googleapis.com") ||
+                    url.contains("firebaseapp.com") ||
+                    url.contains("__/auth/handler");
+        }
+
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-            String scheme = request.getUrl().getScheme();
             String url = request.getUrl().toString();
+
             // Don't override URLs that stay within our domain or Firebase auth domains
             if (url.startsWith(URL) || url.startsWith("https://bithash.apps.adpumb.com") ||
                     isFirebaseAuthUrl(url)) {
@@ -244,22 +250,20 @@ public class MainActivity extends AppCompatActivity {
             // For all other external links, open in browser
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             startActivity(intent);
-            if ("http".equals(scheme) || "https".equals(scheme)) {
-                return false;
-            }
             return true;
         }
 
         @Override
-        public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+        public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             isErrorShown = false;
+
             // Inject JavaScript to handle Firebase auth redirect issues
             if (isFirebaseAuthUrl(url)) {
                 injectFirebaseAuthFix(view);
             }
-            // Keep loading layout visible while page loads
         }
+
         private void injectFirebaseAuthFix(WebView view) {
             // JavaScript to handle Firebase authentication in WebView
             String js = "(function() {" +
@@ -338,7 +342,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private class AppWebChromeClient extends WebChromeClient {
+    private class AppWebChromeClient extends android.webkit.WebChromeClient {
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
             // You can use this to show progress if needed, but we're using a simple loading screen
@@ -346,6 +350,30 @@ public class MainActivity extends AppCompatActivity {
                 // When page is almost loaded, we'll wait for onPageFinished to hide the loader
                 loadingProgress.setVisibility(View.GONE);
             }
+        }
+
+        @Override
+        public void onConsoleMessage(String message, int lineNumber, String sourceID) {
+            Log.d("WebViewConsole", message + " -- From line " + lineNumber + " of " + sourceID);
+
+            // Check for Firebase authentication errors
+            if (message.contains("missing initial state") ||
+                    message.contains("sessionStorage") ||
+                    message.contains("auth/redirect")) {
+                runOnUiThread(() -> {
+                    // Try to recover by reloading
+                    webView.postDelayed(() -> {
+                        webView.reload();
+                    }, 1000);
+                });
+            }
+        }
+
+        @Override
+        public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
+            Log.d("WebViewConsole", consoleMessage.message() + " -- From line "
+                    + consoleMessage.lineNumber() + " of " + consoleMessage.sourceId());
+            return true;
         }
     }
 
