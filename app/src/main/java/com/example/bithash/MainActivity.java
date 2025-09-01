@@ -44,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private Button retryBtn;
 
     private static final String URL = "https://bithash.apps.adpumb.com/";
+
     private boolean isErrorShown = false;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -62,43 +63,11 @@ public class MainActivity extends AppCompatActivity {
         errorDetails = findViewById(R.id.errorDetails);
         retryBtn = findViewById(R.id.retryBtn);
 
-
-
-        // WebView settings
-        WebSettings ws = webView.getSettings();
-        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setLoadWithOverviewMode(true);
-        ws.setUseWideViewPort(true);
-        ws.setAllowFileAccess(true);
-        ws.setAllowContentAccess(true);
-        ws.setCacheMode(WebSettings.LOAD_DEFAULT);
-        ws.setDatabaseEnabled(true);
-
-        // Critical settings for OAuth to work properly
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
-            CookieManager.getInstance().setAcceptCookie(true);
-        }
-
-        // Enable these for better storage handling
-        ws.setAllowUniversalAccessFromFileURLs(true);
-        ws.setAllowFileAccessFromFileURLs(true);
-
-        // Set a proper user agent (some sites check this)
-        String defaultUserAgent = ws.getUserAgentString();
-        ws.setUserAgentString(defaultUserAgent + " MyAppWebView/1.0");
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ws.setSafeBrowsingEnabled(true);
-        }
+        // Configure WebView with proper Android user agent
+        configureWebView();
 
         webView.setWebViewClient(new AppWebViewClient());
         webView.setWebChromeClient(new AppWebChromeClient());
-
-        // Add JavaScript interface for auth communication
-        webView.addJavascriptInterface(new WebAppInterface(), "Android");
 
         retryBtn.setOnClickListener(v -> {
             hideError();
@@ -127,16 +96,49 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void configureWebView() {
+        WebSettings ws = webView.getSettings();
+
+        // Basic settings
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setDatabaseEnabled(true);
+        ws.setLoadWithOverviewMode(true);
+        ws.setUseWideViewPort(true);
+        ws.setAllowFileAccess(true);
+        ws.setAllowContentAccess(true);
+        ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // Set proper Android user agent (not desktop)
+        String defaultUserAgent = ws.getUserAgentString();
+        // Modify user agent to remove WebView markers but keep Android identity
+  /*      String androidUserAgent = defaultUserAgent
+                .replace("; wv)", ")") // Remove WebView indicator
+                .replace("WebView", "") // Remove WebView text
+                + " BithashApp/1.0"; */// Add app identifier
+
+        ws.setUserAgentString(defaultUserAgent);
+        Log.d("UserAgent", "Using User-Agent: " + defaultUserAgent);
+
+        // Cookie handling
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+            CookieManager.getInstance().setAcceptCookie(true);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ws.setSafeBrowsingEnabled(true);
+        }
+    }
+
     private void setupSystemBars() {
-        // Just set light status bar appearance
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             View decorView = getWindow().getDecorView();
             int flags = decorView.getSystemUiVisibility();
             flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             decorView.setSystemUiVisibility(flags);
         }
-
-        // Let the WebView handle its own insets naturally
         webView.setFitsSystemWindows(true);
     }
 
@@ -201,53 +203,24 @@ public class MainActivity extends AppCompatActivity {
         Uri appLinkData = intent.getData();
 
         if (Intent.ACTION_VIEW.equals(appLinkAction) && appLinkData != null) {
-            // Load the URL from the intent data (redirect back from authentication)
             String url = appLinkData.toString();
-            webView.loadUrl(url);
-        }
-    }
-
-    // JavaScript Interface for communication with web content
-    public class WebAppInterface {
-        @android.webkit.JavascriptInterface
-        public void handleAuthError(String error) {
-            Log.d("WebViewAuth", "Authentication error: " + error);
-            // Handle authentication errors from the web page
-            runOnUiThread(() -> {
-                if (error.contains("missing initial state") || error.contains("sessionStorage")) {
-                    showError("Authentication Error",
-                            "Please try signing in again. If the problem persists, clear your app data and try again.");
-                }
-            });
-        }
-
-        @android.webkit.JavascriptInterface
-        public void authSuccess(String userInfo) {
-            Log.d("WebViewAuth", "Authentication successful: " + userInfo);
-            // Handle successful authentication
+            if (url.startsWith(URL)) {
+                webView.loadUrl(url);
+            }
         }
     }
 
     private class AppWebViewClient extends WebViewClient {
-        private boolean isFirebaseAuthUrl(String url) {
-            return url.contains("accounts.google.com") ||
-                    url.contains("google.com/oauth") ||
-                    url.contains("securetoken.googleapis.com") ||
-                    url.contains("firebaseapp.com") ||
-                    url.contains("__/auth/handler");
-        }
-
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String url = request.getUrl().toString();
 
-            // Don't override URLs that stay within our domain or Firebase auth domains
-            if (url.startsWith(URL) || url.startsWith("https://bithash.apps.adpumb.com") ||
-                    isFirebaseAuthUrl(url)) {
-                return false; // Let WebView handle it
+            // Don't override URLs that stay within our domain
+            if (url.startsWith(URL) || url.startsWith("https://bithash.apps.adpumb.com")) {
+                return false;
             }
 
-            // For all other external links, open in browser
+            // For all external links, open in browser
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             startActivity(intent);
             return true;
@@ -257,56 +230,6 @@ public class MainActivity extends AppCompatActivity {
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
             super.onPageStarted(view, url, favicon);
             isErrorShown = false;
-
-            // Inject JavaScript to handle Firebase auth redirect issues
-            if (isFirebaseAuthUrl(url)) {
-                injectFirebaseAuthFix(view);
-            }
-        }
-
-        private void injectFirebaseAuthFix(WebView view) {
-            // JavaScript to handle Firebase authentication in WebView
-            String js = "(function() {" +
-                    "// Store original sessionStorage reference" +
-                    "if (!window.originalSessionStorage) {" +
-                    "  window.originalSessionStorage = window.sessionStorage;" +
-                    "}" +
-
-                    "// Override Firebase's redirect detection" +
-                    "if (typeof firebase !== 'undefined') {" +
-                    "  var originalAuth = firebase.auth;" +
-                    "  if (originalAuth && originalAuth.Auth) {" +
-                    "    var originalIsRedirect = originalAuth.Auth.prototype._isRedirect;" +
-                    "    if (originalIsRedirect) {" +
-                    "      originalAuth.Auth.prototype._isRedirect = function() {" +
-                    "        return false; // Force Firebase to treat this as a popup flow" +
-                    "      };" +
-                    "    }" +
-                    "  }" +
-                    "}" +
-
-                    "// Force popup behavior for Firebase UI" +
-                    "if (typeof firebase !== 'undefined' && firebase.auth) {" +
-                    "  firebase.auth().useDeviceLanguage();" +
-                    "  // Try to detect if we're in a WebView environment" +
-                    "  var isWebView = /WebView|Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);" +
-                    "  if (isWebView) {" +
-                    "    // Override signInWithRedirect to use signInWithPopup instead" +
-                    "    var originalSignInWithRedirect = firebase.auth().signInWithRedirect;" +
-                    "    if (originalSignInWithRedirect) {" +
-                    "      firebase.auth().signInWithRedirect = function(provider) {" +
-                    "        return firebase.auth().signInWithPopup(provider);" +
-                    "      };" +
-                    "    }" +
-                    "  }" +
-                    "}" +
-                    "})();";
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                view.evaluateJavascript(js, null);
-            } else {
-                view.loadUrl("javascript:" + js);
-            }
         }
 
         @Override
@@ -345,9 +268,7 @@ public class MainActivity extends AppCompatActivity {
     private class AppWebChromeClient extends android.webkit.WebChromeClient {
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
-            // You can use this to show progress if needed, but we're using a simple loading screen
             if (newProgress >= 80) {
-                // When page is almost loaded, we'll wait for onPageFinished to hide the loader
                 loadingProgress.setVisibility(View.GONE);
             }
         }
@@ -355,25 +276,6 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onConsoleMessage(String message, int lineNumber, String sourceID) {
             Log.d("WebViewConsole", message + " -- From line " + lineNumber + " of " + sourceID);
-
-            // Check for Firebase authentication errors
-            if (message.contains("missing initial state") ||
-                    message.contains("sessionStorage") ||
-                    message.contains("auth/redirect")) {
-                runOnUiThread(() -> {
-                    // Try to recover by reloading
-                    webView.postDelayed(() -> {
-                        webView.reload();
-                    }, 1000);
-                });
-            }
-        }
-
-        @Override
-        public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
-            Log.d("WebViewConsole", consoleMessage.message() + " -- From line "
-                    + consoleMessage.lineNumber() + " of " + consoleMessage.sourceId());
-            return true;
         }
     }
 
