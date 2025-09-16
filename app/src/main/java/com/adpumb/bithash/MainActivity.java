@@ -1,4 +1,4 @@
-package com.example.bithash;
+package com.adpumb.bithash;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
