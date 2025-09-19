@@ -2,6 +2,7 @@ package com.adpumb.bithash;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -12,10 +13,12 @@ import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
+import android.webkit.URLUtil;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -43,7 +46,9 @@ public class MainActivity extends AppCompatActivity {
     private TextView errorDetails;
     private Button retryBtn;
 
-    private static final String URL = "https://bithash.apps.adpumb.com/";
+   // private static final String URL = "https://bithash.apps.adpumb.com/";
+    private static final String URL = "http://10.1.1.93:3000";
+
 
     private boolean isErrorShown = false;
 
@@ -72,6 +77,23 @@ public class MainActivity extends AppCompatActivity {
         retryBtn.setOnClickListener(v -> {
             hideError();
             checkNetworkAndLoad();
+        });
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.getSettings().setDomStorageEnabled(true);
+
+// Add interface to receive PDF URL
+        webView.addJavascriptInterface(new WebAppInterface(this, webView), "Android");
+
+        // Enable downloads
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setMimeType(mimeType);
+            request.addRequestHeader("User-Agent", userAgent);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType));
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            dm.enqueue(request);
         });
 
         setupSystemBars();
@@ -286,4 +308,9 @@ public class MainActivity extends AppCompatActivity {
         }
         super.onDestroy();
     }
+
+
+
+
+
 }
